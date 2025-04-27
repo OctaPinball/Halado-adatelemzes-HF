@@ -17,8 +17,8 @@ def load_data():
         data = pd.read_csv(os.path.join(DATA_PATH, "processed_data.csv"))
         
         # Target és feature-ök szétválasztása
-        y = data["price"].values
-        X = data.drop("price", axis=1).values
+        y = data["price_mill_ft"].values
+        X = data.drop("price_mill_ft", axis=1).values
         
         # Train-validation-test split
         X_temp, X_test, y_temp, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
