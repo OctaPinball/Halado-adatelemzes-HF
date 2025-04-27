@@ -23,9 +23,13 @@ def preprocess(force=False):
         
         # Hiányzó értékek kezelése
         raw_data = raw_data.dropna()
+
+        # Felesleges oszlopok eltávolítása
+        columns_to_drop = ["listing_id", "price", "address"]
+        raw_data = raw_data.drop(columns=columns_to_drop, errors='ignore')
         
         # Kategórikus változók kezelése
-        categorical_cols = ["location", "property_type"]
+        categorical_cols = []
         raw_data = pd.get_dummies(raw_data, columns=categorical_cols)
         
         # Adatok mentése
