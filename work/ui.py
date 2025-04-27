@@ -189,69 +189,115 @@ with gr.Blocks(title="Budapest Ingatlan Értékelő") as app:
     gr.Markdown("# Budapest Ingatlan Értékelő Alkalmazás")
     gr.Markdown("### Adja meg a lakás adatait, és helyezze el a térképen")
     
-    # Rejtett mezők a koordináták tárolására
     lat = gr.State(value=BUDAPEST_LAT)
     lon = gr.State(value=BUDAPEST_LON)
     
     with gr.Row():
         with gr.Column(scale=1):
-            address = gr.Textbox(label="Cím", placeholder="Pl: Andrássy út 2, Budapest")
+            address = gr.Textbox(label="Cím", placeholder="Pl: Andrássy út 2, Budapest", interactive=True)
             search_btn = gr.Button("Cím keresése")
             
-            sqm = gr.Number(label="Méret (m²)", value=50)
-            rooms = gr.Number(label="Szobák száma", value=2)
+            sqm = gr.Number(label="Méret (m²)", value=50, interactive=True)
+            rooms = gr.Number(label="Szobák száma", value=2, interactive=True)
             
             with gr.Accordion("Épület típusa", open=False):
-                tegla_epitesu = gr.Checkbox(label="Tégla építésű")
-                panel = gr.Checkbox(label="Panel")
-                csuszozsalus = gr.Checkbox(label="Csúszózsalus")
+                building_type = gr.Radio(
+                    choices=["Tégla építésű", "Panel", "Csúszózsalus"],
+                    label=""
+                )
             
             with gr.Accordion("Állapot", open=False):
-                uj_epitesu = gr.Checkbox(label="Új építésű")
-                ujszeru = gr.Checkbox(label="Újszerű")
-                felujitott = gr.Checkbox(label="Felújított")
-                jo_allapotu = gr.Checkbox(label="Jó állapotú")
-                kozepes_allapotu = gr.Checkbox(label="Közepes állapotú")
-                felujitando = gr.Checkbox(label="Felújítandó")
+                condition = gr.Radio(
+                    choices=["Új építésű", "Újszerű", "Felújított", "Jó állapotú", "Közepes állapotú", "Felújítandó"],
+                    label=""
+                )
             
             with gr.Accordion("Építés éve", open=False):
-                epitve_1950_elott = gr.Checkbox(label="1950 előtt")
-                epitve_1950_1980 = gr.Checkbox(label="1950-1980 között")
-                epitve_2001_2010 = gr.Checkbox(label="2001-2010 között")
-                epitve_2011_utan = gr.Checkbox(label="2011 után")
+                built_year = gr.Radio(
+                    choices=["1950 előtt", "1950-1980 között", "2001-2010 között", "2011 után"],
+                    label=""
+                )
             
             with gr.Accordion("Parkolás", open=False):
-                udvari_beallo = gr.Checkbox(label="Udvari beálló")
-                teremgarazs = gr.Checkbox(label="Teremgarázs")
-                onallo_garazs = gr.Checkbox(label="Önálló garázs")
-                utcan_parkolas = gr.Checkbox(label="Utcán parkolás")
+                parking = gr.Radio(
+                    choices=["Udvari beálló", "Teremgarázs", "Önálló garázs", "Utcán parkolás"],
+                    label=""
+                )
             
             predict_btn = gr.Button("Érték becslése")
         
         with gr.Column(scale=2):
             map_output = gr.HTML(label="Térkép", value=initial_html)
-            prediction = gr.Textbox(label="Becsült érték")
+            prediction = gr.Textbox(label="Becsült érték", interactive=False)
     
     # Cím keresés eseménykezelő
-    search_outputs = search_btn.click(
+    search_btn.click(
         fn=search_address,
         inputs=[address],
         outputs=[map_output, lat, lon]
     )
     
-    # Becslés eseménykezelő
-    predict_btn.click(
-        fn=process_inputs,
-        inputs=[
+    # Becslés eseménykezelő, előtte ellenőrzés
+    def validate_and_process(
+        address, lat, lon, sqm, rooms,
+        building_type, condition, built_year, parking
+    ):
+        if not address:
+            raise gr.Error("A cím megadása kötelező.")
+        if sqm is None or sqm <= 0:
+            raise gr.Error("A méretet meg kell adni, és pozitív számnak kell lennie.")
+        if rooms is None or rooms <= 0:
+            raise gr.Error("A szobák számát meg kell adni, és pozitív számnak kell lennie.")
+        if not building_type:
+            raise gr.Error("Válasszon épülettípust.")
+        if not condition:
+            raise gr.Error("Válasszon állapotot.")
+        if not built_year:
+            raise gr.Error("Válasszon építési időszakot.")
+        if not parking:
+            raise gr.Error("Válasszon parkolási lehetőséget.")
+
+        # Átalakítás: checkboxok helyett a rádió értékek alapján állítunk be bool értékeket
+        tegla_epitesu = building_type == "Tégla építésű"
+        panel = building_type == "Panel"
+        csuszozsalus = building_type == "Csúszózsalus"
+
+        uj_epitesu = condition == "Új építésű"
+        ujszeru = condition == "Újszerű"
+        felujitott = condition == "Felújított"
+        jo_allapotu = condition == "Jó állapotú"
+        kozepes_allapotu = condition == "Közepes állapotú"
+        felujitando = condition == "Felújítandó"
+
+        epitve_1950_elott = built_year == "1950 előtt"
+        epitve_1950_1980 = built_year == "1950-1980 között"
+        epitve_2001_2010 = built_year == "2001-2010 között"
+        epitve_2011_utan = built_year == "2011 után"
+
+        udvari_beallo = parking == "Udvari beálló"
+        teremgarazs = parking == "Teremgarázs"
+        onallo_garazs = parking == "Önálló garázs"
+        utcan_parkolas = parking == "Utcán parkolás"
+
+        return process_inputs(
             address, lat, lon, sqm, rooms,
             tegla_epitesu, panel, csuszozsalus, uj_epitesu,
             ujszeru, felujitott, jo_allapotu, kozepes_allapotu,
             felujitando, epitve_1950_elott, epitve_1950_1980,
             epitve_2001_2010, epitve_2011_utan, udvari_beallo,
             teremgarazs, onallo_garazs, utcan_parkolas
+        )
+
+    predict_btn.click(
+        fn=validate_and_process,
+        inputs=[
+            address, lat, lon, sqm, rooms,
+            building_type, condition, built_year, parking
         ],
         outputs=[map_output, prediction]
     )
+
+
 
 # Az alkalmazás indítása
 if __name__ == "__main__":
