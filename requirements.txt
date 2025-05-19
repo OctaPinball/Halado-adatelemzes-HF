@@ -8,3 +8,4 @@ gradio
 folium
 pandas
 geopy
+matplotlib

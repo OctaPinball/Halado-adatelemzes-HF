@@ -19,7 +19,7 @@ parser.add_argument('-p', '--preprocess', choices=['force', 'skip', 'run'], defa
                     help='Előfeldolgozási mód: force (erőltetett újrafeldolgozás), skip (kihagyás), run (futtatás ha szükséges)')
 
 # Modell paraméterek
-parser.add_argument('-m', '--models', nargs='+', choices=['linear', 'mlp', 'all'], default=['all'],
+parser.add_argument('-m', '--models', nargs='+', choices=['linear', 'mlp', 'rfr', 'all'], default=['all'],
                     help='Használandó modellek')
 
 # Betöltési paraméter

@@ -5,13 +5,15 @@ import sys
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 import joblib
+import numpy as np
 
 from config import DATA_PATH, MODEL_PATH
 from dataset import HousingDataset
 
 def load_data():
     """
-    Betölti és szétosztja az adatokat train, validation és test halmazokra
+    Betölti és szétosztja az adatokat train, validation és test halmazokra.
+    A target értékek log1p transzformáción esnek át.
     """
     try:
         data = pd.read_csv(os.path.join(DATA_PATH, "processed_data.csv"))
@@ -29,6 +31,11 @@ def load_data():
         X_train = scaler.fit_transform(X_train)
         X_val = scaler.transform(X_val)
         X_test = scaler.transform(X_test)
+        
+        # Target log1p transzformáció
+        y_train = np.log1p(y_train)
+        y_val = np.log1p(y_val)
+        y_test = np.log1p(y_test)
         
         # Scaler mentése
         joblib.dump(scaler, os.path.join(MODEL_PATH, "scaler.pkl"))
@@ -48,6 +55,7 @@ def load_data():
     except Exception as e:
         print(f"Hiba az adatok betöltése közben: {e}")
         sys.exit(1)
+
 
 def get_data_loaders(X_train, y_train, X_val, y_val, batch_size):
     train_dataset = HousingDataset(X_train, y_train)
