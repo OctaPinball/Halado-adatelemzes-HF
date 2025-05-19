@@ -8,6 +8,17 @@ import tempfile
 from geopy.geocoders import Nominatim
 import base64
 from pathlib import Path
+import torch
+import argparse
+import sys
+import joblib
+from sklearn.base import BaseEstimator
+
+# Importálások a predikciós pipeline-ból
+from config import DATA_PATH, MODEL_PATH, RESULTS_PATH, available_models
+from preprocess import preprocess
+from dataloader import load_data
+from predict import predict
 
 # Budapest középpontja (hozzávetőleges koordináták)
 BUDAPEST_LAT = 47.497912
@@ -130,6 +141,123 @@ def search_address(address):
     
     return map_html, lat, lon
 
+def prepare_data_for_prediction(property_data):
+    """
+    Előkészíti az adatokat a predikciós modell számára
+    """
+    # CSV formátumba konvertáljuk az adatokat
+    data = pd.DataFrame([property_data])
+    
+    # Lokációt kerület alapján határozzuk meg (pl. cím alapján)
+    # Itt egy egyszerűsített megoldást használunk, a valódi implementációban
+    # a címből kellene kinyerni a kerületet
+    district = get_district_from_address(property_data['address'])
+    data['location'] = district
+    
+    # Ingatlan típus hozzáadása - példaként lakást feltételezünk
+    data['property_type'] = 'apartment'
+    
+    # Ideiglenes fájlba mentjük az adatokat
+    temp_dir = tempfile.gettempdir()
+    input_file = os.path.join(temp_dir, 'input_property.csv')
+    data.to_csv(input_file, index=False)
+    
+    return input_file
+
+def get_district_from_address(address):
+    """
+    Meghatározza a kerületet a cím alapján
+    """
+    # Egyszerűsített implementáció - valós alkalmazásban komplexebb logika lenne
+    address_lower = address.lower()
+    
+    # Kerület keresése a címben
+    for i in range(1, 24):
+        if f"{i}. kerület" in address_lower or f"{i}.kerület" in address_lower:
+            return f"district_{i:02d}"
+    
+    # Ha nem találtunk kerületet, visszatérünk egy alapértelmezett értékkel
+    return "district_05"  # Belváros mint alapértelmezett
+
+def run_prediction_pipeline(input_file):
+    """
+    Futtatja a predikciós pipeline-t a megadott bemeneti fájlon
+    """
+    # Argumentumok beállítása a predikciós pipeline számára
+    sys.argv = [
+        'script_name',  # Ez nem számít, csak helykitöltő
+        '--predict',
+        '--input', input_file,
+        '--models', 'all',  # Minden modellt használunk
+        '--preprocess', 'skip'  # Előfeldolgozás kihagyása, mivel már feldolgozva van
+    ]
+    
+    # Device beállítása
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    
+    # Modellek betöltése
+    models = {}
+    for model_name in available_models.keys():
+        # Input size beállítása - ez valójában a betanított modellek adataiból jönne
+        _, _, _, _, _, _, input_size = load_data()
+        models[model_name] = available_models[model_name](input_size)
+        try:
+            # PyTorch vagy sklearn modell ellenőrzése és betöltése
+            if isinstance(models[model_name], torch.nn.Module):
+                models[model_name].load_state_dict(torch.load(os.path.join(MODEL_PATH, f"{model_name}.pth")))
+                print(f"{model_name} PyTorch modell betöltve.")
+            elif isinstance(models[model_name], BaseEstimator):
+                # sklearn modell betöltése joblib-bal
+                models[model_name] = joblib.load(os.path.join(MODEL_PATH, f"{model_name}.pkl"))
+                print(f"{model_name} sklearn modell betöltve.")
+            else:
+                print(f"Ismeretlen modell típus: {type(models[model_name])}")
+        except Exception as e:
+            print(f"Hiba a {model_name} modell betöltésekor: {e}")
+    
+    # Predikció futtatása
+    try:
+        input_data = pd.read_csv(input_file)
+        # Kategórikus változók átalakítása
+        categorical_cols = ["location", "property_type"]
+        input_data = pd.get_dummies(input_data, columns=categorical_cols)
+        
+        # Hiányzó oszlopok hozzáadása
+        processed_data = pd.read_csv(os.path.join(DATA_PATH, "processed_data.csv"))
+        feature_cols = processed_data.drop("price_mill_ft", axis=1).columns
+        
+        for col in feature_cols:
+            if col not in input_data.columns:
+                input_data[col] = 0
+        
+        # Szükségtelen oszlopok eltávolítása
+        for col in input_data.columns:
+            if col not in feature_cols:
+                input_data = input_data.drop(col, axis=1)
+        
+        # Oszlopok sorrendjének rendezése
+        input_data = input_data[feature_cols]
+        
+        # Predikció minden modellel
+        all_predictions = {}
+        for model_name, model in models.items():
+            predictions = predict(model, model_name, input_data.values, device)
+            all_predictions[model_name] = predictions.flatten()[0]  # Csak az első predikciót vesszük
+        
+        # Átlag számolása a predikciókból
+        avg_prediction = np.mean(list(all_predictions.values()))
+        
+        # Formázott eredmény visszaadása
+        formatted_result = f"Becsült érték: {avg_prediction:.2f} millió Ft\n\n"
+        formatted_result += "Modellek szerinti becslések:\n"
+        for model_name, pred in all_predictions.items():
+            formatted_result += f"- {model_name}: {pred:.2f} millió Ft\n"
+        
+        return formatted_result
+        
+    except Exception as e:
+        return f"Hiba a predikció során: {e}"
+
 def process_inputs(
     address, lat, lon, sqm, rooms,
     tegla_epitesu, panel, csuszozsalus, uj_epitesu,
@@ -138,7 +266,7 @@ def process_inputs(
     epitve_2001_2010, epitve_2011_utan, udvari_beallo,
     teremgarazs, onallo_garazs, utcan_parkolas
 ):
-    """Feldolgozza a felhasználói bemeneteket"""
+    """Feldolgozza a felhasználói bemeneteket és futtatja a predikciós modellt"""
     # Összegyűjtjük az ingatlan adatait egy szótárba
     property_data = {
         'address': address,
@@ -173,10 +301,11 @@ def process_inputs(
     m = add_property_to_map(m, property_data, lat, lon)
     map_html = map_to_html_data(m)
     
-    # Itt kapcsolódhatnánk egy prediktív modellhez
-    # Példa: becsult_ar = model.predict(property_data)
-    # Mivel most nincs modellünk, csak egy példa üzenetet adunk vissza
-    becsult_ar = "A prediktív modell itt fogja meghatározni az ingatlan értékét"
+    # Adatok előkészítése a predikcióhoz
+    input_file = prepare_data_for_prediction(property_data)
+    
+    # Predikciós pipeline futtatása
+    becsult_ar = run_prediction_pipeline(input_file)
     
     return map_html, becsult_ar
 
@@ -296,8 +425,6 @@ with gr.Blocks(title="Budapest Ingatlan Értékelő") as app:
         ],
         outputs=[map_output, prediction]
     )
-
-
 
 # Az alkalmazás indítása
 if __name__ == "__main__":
